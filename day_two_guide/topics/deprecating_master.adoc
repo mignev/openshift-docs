@@ -1,0 +1,150 @@
+////
+Deprecating a Master Host
+
+Module included in the following assemblies:
+
+* day_two_guide/host_level_tasks.adoc
+////
+
+To deprecate a master host is important to review the current role and services
+running on the master as well as the status of the cluster before and after the
+master has been deprecated.
+
+If the {rhocp} environment has been deployed in a highly available architecture,
+there are at least 3 master hosts and 3 `etcd` nodes. Usually master hosts are
+running `etcd` services collocated with the master services, in that case it
+includes 3 master hosts running the `etcd` services.
+
+The reasons to deprecate or scale down master hosts include hardware re-sizing
+or replace the underlying infrastructure.
+
+As a general recommendation, create a backup of the configuration and data
+files prior to any important task such as deprecating a master host.
+
+IMPORTANT: It is recommended the master services and `etcd` always be deployed in odd numbers
+due to the voting mechanisms that take place among those services.
+
+===== Deprecating a Master Host Without `etcd`
+{rhocp} master hosts run a couple of services including the {rhocp} api and
+the {rhocp} controllers services if the {rhocp} architecture is multi-master.
+In order to deprecate a master host, the services must be stopped. The {rhocp}
+api service is an active/active service, so stopping the service doesn't affect
+the environment as long as the requests are sent to the other {rhocp} master
+servers. The {rhocp} controllers service however is an active/passive service,
+where the services leverage `etcd` to decide the {rhocp} master active. In order
+to check the master running the active controller service, see
+<<controller_role_verification>>
+
+To properly deprecate a master host in a {rhocp} multi-master architecture the steps must
+include removing the master from the load balancer pool to avoid new connections
+try to use that master. This process depends heavily on the load balancer
+used. The steps below show the details of removing the master from `haproxy`. In the event that
+the {rhocp} is running on a cloud provider or using a `F5` applicance please see the product
+documents for that load balancer to remove the master from rotation.
+
+In the event of deprecating a master named `master-0.example.com` using
+`haproxy`, the master must be removed from the `backend` section in the `/etc/haproxy/haproxy.cfg` configuration file such as:
+
+----
+backend mgmt8443
+    balance source
+    mode tcp
+    # MASTERS 8443
+    server master-1.example.com 192.168.55.12:8443 check
+    server master-2.example.com 192.168.55.13:8443 check
+----
+
+And restarting the `haproxy` service.
+
+----
+$ sudo systemctl restart haproxy
+----
+
+NOTE: For more information about `haproxy` in {rhel} 7, see the
+https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/load_balancer_administration/index[Load Balancer Administration documentation].
+
+Once the master is removed from the load balancer, the api and controller
+services can be disabled:
+
+----
+$ sudo systemctl disable --now atomic-openshift-master-api
+$ sudo systemctl disable --now atomic-openshift-master-controllers
+----
+
+The master host is a {rhocp} node as well therefore the same steps as the
+<<deprecating_a_node>> section is required.
+
+To properly remove the master host, the `Ansible` inventory file requires 
+modification to remove the master host from the inventory to avoid issues if
+running any `Ansible` task using that inventory.
+
+Modify `/etc/ansible/hosts` in the host used to install {rhocp} and remove it
+from the `[masters]` and `[nodes]` groups:
+
+[subs=+quotes]
+----
+...[OUTPUT OMITTED]...
+# host group for masters
+[masters]
+*master-0.example.com*
+master-1.example.com
+master-2.example.com
+
+# host group for nodes, includes region info
+[nodes]
+*master-0.example.com openshift_node_labels="{'role': 'master'}" openshift_hostname=master-0.example.com openshift_schedulable=false*
+...[OUTPUT OMITTED]...
+----
+
+WARNING: At the time of writing this document, the
+`/etc/origin/master/ca.serial.txt` is generated only in the first master of the
+`Ansible` host inventory and it is being investigated by {rh} to be fixed in
+future {rhocp} releases in the
+https://bugzilla.redhat.com/show_bug.cgi?id=1469358[1469358 bugzilla]. Extra
+precautions required if deprecating the first master such as copying the
+`/etc/origin/master/ca.serial.txt` file to the rest of master hosts before
+removing the first master in the inventory.
+
+The `kubernetes` service in {rhocp} includes as endpoints the masters IPs. To
+verify the `master` has been properly deprecated, review the `kubernetes`
+service and observe if the deprecated master has been removed:
+
+----
+$ oc describe svc kubernetes -n default
+Name:			kubernetes
+Namespace:		default
+Labels:			component=apiserver
+			provider=kubernetes
+Annotations:		<none>
+Selector:		<none>
+Type:			ClusterIP
+IP:			10.111.0.1
+Port:			https	443/TCP
+Endpoints:		192.168.55.12:8443,192.168.55.13:8443
+Port:			dns	53/UDP
+Endpoints:		192.168.55.12:8053,192.168.55.13:8053
+Port:			dns-tcp	53/TCP
+Endpoints:		192.168.55.12:8053,192.168.55.13:8053
+Session Affinity:	ClientIP
+Events:			<none>
+----
+
+Once the master has been successfully deprecated, the host where the master
+was previously running can be safely deleted.
+
+[[deprecating_a_collocated_etcd_master_host]]
+===== Deprecating a Collocated etcd Master Host
+The process to deprecate a master host running `etcd` include executing the
+previous steps to <<deprecating_a_master_host>> and the steps to <<removing_an_etcd_host>>
+
+==== Replacing a Master Host
+In the event of a master host breakage where it needs to be replaced, the
+process involve <<deprecating_a_master_host>> procedure and then scale up the
+master hosts with the new host using the scale up `Ansible` playbook following
+the <<adding_masters_to_rhocp_environment>> procedure.
+
+If the master host has a collocated `etcd`, then the
+<<deprecating_a_collocated_etcd_master_host>> steps are required, then the
+<<adding_masters_to_rhocp_environment>> as well as <<scaling_etcd>>.
+
+// vim: set syntax=asciidoc:

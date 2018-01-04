@@ -1,0 +1,1125 @@
+////
+etcd tasks
+
+Module included in the following assemblies:
+
+* day_two_guide/host_level_tasks.adoc
+////
+
+`etcd` is the key value store
+where all the object definitions are stored as well as the persistent master
+state while other components watch for changes to bring themselves into
+the desired state.
+
+{product-title} versions prior to 3.5 used `etcd` version 2, while 3.5 and later
+uses v3. The data model between the two versions of `etcd` is different. etcd v3
+can use both the v2 and v3 data model, whereas etcd v2 can only use the v2 data
+model. In an `etcd` v3 server, the v2 and v3 data stores exist in parallel and
+are independent.
+
+For both v2 and v3 operations, you can use the `ETCDCTL_API` environment variable to use the proper API:
+
+----
+$ etcdctl -v
+etcdctl version: 3.2.5
+API version: 2
+$ ETCDCTL_API=3 etcdctl version
+etcdctl version: 3.2.5
+API version: 3.2
+----
+
+See
+https://docs.openshift.com/container-platform/3.6/install_config/upgrading/migrating_etcd.html[Migrating
+etcd Data (v2 to v3) section] for information about how to migrate to v3.
+
+[NOTE]
+====
+In this document any of the `etcd` nodes can be used.
+====
+
+=== Backup & Restore `etcd`
+The `etcd` backup procedure is composed by two different procedures:
+
+* Configuration backup - Including the required `etcd` configuration and
+certificates
+* Data backup - Including both v2 and v3 data model.
+
+The data backup procedure can be done on any host that has connectivity to the
+`etcd` cluster, the proper certificates are provided and where the `etcdctl`
+tool is installed.
+
+[NOTE]
+====
+The backup files must
+be copied to an external system other than the `etcd` members themselves,
+ideally outside the {product-title} environment and those files encrypted.
+====
+
+==== `etcd` Configuration Backup
+The `etcd` configuration files to be preserved are all stored in the
+`/etc/etcd` directory of the instances where `etcd` is running.
+It includes the `etcd` configuration file (`/etc/etcd/etcd.conf`) and the
+required certificates for cluster communication. All those files are generated
+at installation time by the `Ansible` based installer.
+
+This snippet can be used:
+
+[subs=+quotes]
+----
+$ *ssh master-0*
+$ *sudo mkdir -p /backup/etcd-config-$(date +%Y%m%d)/*
+$ *sudo cp -R /etc/etcd/ /backup/etcd-config-$(date +%Y%m%d)/*
+----
+
+NOTE: The backup is to be performed on every `etcd` member of the cluster
+as the certificates and configuration files are unique.
+
+==== `etcd` Configuration Restore
+The restore procedure for `etcd` configuration files is to replace the affected
+files and restart the service.
+
+If the `/etc/etcd/etcd.conf` file is corrupted on an instance(for example master-0) it
+can be restored as:
+
+[subs=+quotes]
+----
+$ *ssh master-0*
+$ *sudo cp /backup/yesterday/master-0-files/etcd.conf /etc/etcd/etcd.conf*
+$ *sudo restorecon -Rv /etc/etcd/etcd.conf*
+$ *sudo systemctl restart etcd.service*
+----
+
+In this example, the backup file is stored in the
+`/backup/yesterday/master-0-files/etcd.conf` path where it can be an
+external NFS share, S3 bucket, etc.
+
+[[etcd-data-backup]]
+==== `etcd` Data Backup
+In order to backup `etcd` a few prerequisites is to be performed before trying to backup `etcd`:
+
+* `etcdctl` binaries should be available or in case of containerized
+installation, the `rhel7/etcd` container should be available.
+* Connectivity with the `etcd` cluster (port 2379/tcp)
+* Proper certificates to connect to the `etcd` cluster
+
+NOTE: The following procedure can be performed on any `etcd` member
+
+*Prechecks*
+
+To ensure the `etcd` cluster is working, check the health status:
+
+[subs=+quotes]
+----
+$ sudo etcdctl --cert-file=/etc/etcd/peer.crt \
+          --key-file=/etc/etcd/peer.key \
+          --ca-file=/etc/etcd/ca.crt \
+          --peers="https://*master-0.example.com*:2379,\
+          https://*master-1.example.com*:2379,\
+          https://*master-2.example.com*:2379"\
+          cluster-health
+member 5ee217d19001 is healthy: got healthy result from https://192.168.55.12:2379
+member 2a529ba1840722c0 is healthy: got healthy result from https://192.168.55.8:2379
+member ed4f0efd277d7599 is healthy: got healthy result from https://192.168.55.13:2379
+cluster is healthy
+----
+
+Using `etcd` v3 API:
+
+[subs=+quotes]
+----
+$ sudo ETCDCTL_API=3 etcdctl --cert="/etc/etcd/peer.crt" \
+          --key=/etc/etcd/peer.key \
+          --cacert="/etc/etcd/ca.crt" \
+          --endpoints="https://*master-0.example.com*:2379,\
+            https://*master-1.example.com*:2379,\
+            https://*master-2.example.com*:2379"
+            endpoint health
+https://master-0.example.com:2379 is healthy: successfully committed proposal: took = 5.011358ms
+https://master-1.example.com:2379 is healthy: successfully committed proposal: took = 1.305173ms
+https://master-2.example.com:2379 is healthy: successfully committed proposal: took = 1.388772ms
+----
+
+NOTE: *{rhocp}* installer creates a couple of handy aliases to avoid typing all
+the flags named `etcdctl2` for etcd v2 tasks and `etcdctl3` for etcd v3 tasks.
+
+Check the member list
+
+----
+$ sudo etcdctl2 member list
+2a371dd20f21ca8d: name=master-1.example.com peerURLs=https://192.168.55.12:2380 clientURLs=https://192.168.55.12:2379 isLeader=false
+40bef1f6c79b3163: name=master-0.example.com peerURLs=https://192.168.55.8:2380 clientURLs=https://192.168.55.8:2379 isLeader=false
+95dc17ffcce8ee29: name=master-2.example.com peerURLs=https://192.168.55.13:2380 clientURLs=https://192.168.55.13:2379 isLeader=true
+----
+
+Using `etcd` v3 API:
+----
+$ sudo etcdctl3 member list
+2a371dd20f21ca8d, started, master-1.example.com, https://192.168.55.12:2380, https://192.168.55.12:2379
+40bef1f6c79b3163, started, master-0.example.com, https://192.168.55.8:2380, https://192.168.55.8:2379
+95dc17ffcce8ee29, started, master-2.example.com, https://192.168.55.13:2380, https://192.168.55.13:2379
+----
+
+NOTE: `etcdctl3` alias doesn't provide the full endpoint
+list to the `etcdctl` command so the `--endpoints` flag
+with all the endpoints must be provided.
+
+*Perform the backup*
+
+The `etcdctl backup` command is used to perform the backup. For `etcd` v3 data,
+there is no "backup" concept but "snapshot" where a snapshot may either be
+taken from a live member with the `etcdctl snapshot save` command or by copying
+the `member/snap/db` file from an `etcd` data directory.
+
+NOTE: The `etcdctl backup` command rewrites some of the metadata contained in
+the backup (specifically, the node ID and cluster ID), which means that in the
+backup, the node lose its former identity. In order to recreate a cluster from
+the backup, a new, single-node cluster is created then the rest of the nodes
+join the cluster. The metadata is rewritten to prevent the new node from
+inadvertently being joined onto an existing cluster.
+
+The procedure to perform the backup is:
+
+[subs=+quotes]
+----
+$ sudo mkdir -p */backup/etcd-$(date +%Y%m%d)*
+$ sudo systemctl stop etcd.service
+$ sudo etcdctl2 backup \
+    --data-dir /var/lib/etcd \
+    --backup-dir */backup/etcd-$(date +%Y%m%d)*
+$ sudo cp /var/lib/etcd/member/snap/db */backup/etcd-$(date +%Y%m%d)*
+$ sudo systemctl start etcd.service
+----
+
+NOTE: Although stopping the `etcd` service is not strictly necessary, doing so
+ensures that the `etcd` data is fully synchronized.
+
+The `etcdctl2 backup` command creates `etcd` v2 data backup where copying the
+`db` file while the `etcd` service is not running is equivalent on running
+`etcdctl3 snapshot` for `etcd` v3 data backup.
+
+[subs=+quotes]
+----
+$ sudo mkdir -p */backup/etcd-$(date +%Y%m%d)*
+$ sudo etcdctl3 snapshot save */backup/etcd-$(date +%Y%m%d)*/db
+Snapshot saved at /backup/etcd-xxxxxx/db
+$ sudo systemctl stop etcd.service
+$ sudo etcdctl2 backup \
+    --data-dir /var/lib/etcd \
+    --backup-dir */backup/etcd-$(date +%Y%m%d)*
+$ sudo systemctl start etcd.service
+----
+
+NOTE: `etcdctl snapshot save` command requires the `etcd` service to be
+running.
+
+In this example, a directory `/backup/etcd-xxxxxx` is created where it
+represents the current date and it must be an external NFS share, S3 bucket
+or any external storage location.
+
+NOTE: In case an all-in-one cluster, the `etcd` data directory is located in
+`/var/lib/origin/openshift.local.etcd`
+
+==== `etcd` v2 & v3 Data Restore
+The restore procedure implies restoring healthy data files and start the `etcd`
+cluster as a single node, then add the rest of the nodes in case an `etcd`
+cluster is required.
+
+* Stop all `etcd` services
+
+----
+$ sudo systemctl stop etcd.service
+----
+
+* Clean the `etcd` data directories to ensure the proper backup is restored
+keeping the running copy:
+
+----
+$ sudo mv /var/lib/etcd /var/lib/etcd.old
+$ sudo mkdir /var/lib/etcd
+$ sudo chown -R etcd.etcd /var/lib/etcd/
+$ sudo restorecon -Rv /var/lib/etcd/
+----
+
+or wipe the `etcd` data directory:
+
+----
+$ sudo rm -Rf /var/lib/etcd/*
+----
+
+NOTE: In case an all-in-one cluster, the `etcd` data directory is located in
+`/var/lib/origin/openshift.local.etcd`
+
+* Restore a healthy backup data files in one of the `etcd` nodes:
+
+[subs=+quotes]
+----
+$ sudo cp -R /backup/etcd-xxx/* /var/lib/etcd/
+$ sudo mv /var/lib/etcd/db /var/lib/etcd/member/snap/db
+----
+
+NOTE: The `db` file is required for `etcd` v3 data.
+
+* Run `etcd` service forcing a new cluster
+
+In order to make this work, a custom file for the `etcd` service is created
+that overwrites the execution command adding the `--force-new-cluster` flag
+
+----
+$ sudo mkdir -p /etc/systemd/system/etcd.service.d/
+$ sudo echo "[Service]" > /etc/systemd/system/etcd.service.d/temp.conf
+$ sudo echo "ExecStart=" >> /etc/systemd/system/etcd.service.d/temp.conf
+$ sudo sed -n '/ExecStart/s/"$/ --force-new-cluster"/p' \
+    /usr/lib/systemd/system/etcd.service \
+    >> /etc/systemd/system/etcd.service.d/temp.conf
+
+$ sudo systemctl daemon-reload
+$ sudo systemctl restart etcd
+----
+
+* Check for error messages:
+
+----
+$ journalctl -fu etcd.service
+----
+
+* Check for health status (in this case, a single node)
+
+----
+$ sudo etcdctl2 cluster-health
+member 5ee217d17301 is healthy: got healthy result from https://192.168.55.8:2379
+cluster is healthy
+----
+
+* Re-start the `etcd` service in cluster mode
+
+----
+$ sudo rm -f /etc/systemd/system/etcd.service.d/temp.conf
+$ sudo systemctl daemon-reload
+$ sudo systemctl restart etcd
+----
+
+* Check for health status and member list
+
+----
+$ sudo etcdctl2 cluster-health
+member 5ee217d17301 is healthy: got healthy result from https://192.168.55.8:2379
+cluster is healthy
+
+$ sudo etcdctl2 member list
+5ee217d17301: name=master-0.example.com peerURLs=http://localhost:2380 clientURLs=https://192.168.55.8:2379 isLeader=true
+----
+
+*Adding more nodes*
+
+In case of a *{rhocp}* deployment where there are multiple `etcd` servers, the procedure
+is to join those servers once the first one is properly running.
+
+*Fix the `peerURLS` parameter*
+
+After restoring the data and creating a new cluster, the `peerURLs` parameter
+shows `localhost` instead the IP where `etcd` is listening for peer
+communication.
+
+[subs=+quotes]
+----
+$ sudo etcdctl2 member list
+5ee217d17301: name=master-0.example.com peerURLs=http://*localhost*:2380 clientURLs=https://192.168.55.8:2379 isLeader=true
+----
+
+In order to fix it:
+
+* Get the member ID from the `etcdctl member list` output
+* Get the IP where `etcd` is listening for peer communication as:
+
+----
+$ ss -l4n | grep 2380
+----
+
+or
+
+----
+$ sudo grep ETCD_INITIAL_ADVERTISE_PEER_URLS /etc/etcd/etcd.conf
+----
+
+* Update the member information with that IP:
+
+[subs=+quotes]
+----
+$ sudo etcdctl2 member update *5ee217d17301* https://*192.168.55.8*:2380
+Updated member with ID 5ee217d17301 in cluster
+----
+* Verify it:
+
+[subs=+quotes]
+----
+$ etcdctl2 member list
+5ee217d17301: name=master-0.example.com peerURLs=https://*192.168.55.8*:2380 clientURLs=https://192.168.55.8:2379 isLeader=true
+----
+
+Check the differences (`peerURLs`)
+
+*Add more members*
+
+In the instance joining the cluster:
+
+* Get the `etcd` name for the instance in the `ETCD_NAME` variable:
+
+----
+$ sudo grep ETCD_NAME /etc/etcd/etcd.conf
+----
+
+* Get the IP where `etcd` listen for peer communication as:
+----
+$ sudo grep ETCD_INITIAL_ADVERTISE_PEER_URLS /etc/etcd/etcd.conf
+----
+
+* Delete the previous `etcd` data:
+----
+$ sudo rm -Rf /var/lib/etcd/*
+----
+
+* Back to the `etcd` host where `etcd` is properly running, add the new member:
+
+[subs=+quotes]
+----
+$ etcdctl2 member add *<name> <advertise_peer_urls>*
+----
+
+The command outputs some variables. As an example:
+
+----
+ETCD_NAME="master2"
+ETCD_INITIAL_CLUSTER="master1=https://10.0.0.7:2380,master2=https://10.0.0.5:2380"
+ETCD_INITIAL_CLUSTER_STATE="existing"
+----
+
+* Those values must be added to the instance joining the cluster replacing
+the previous values in the `/etc/etcd/etcd.conf` file
+
+----
+$ sudo vi /etc/etc/etcd.conf
+----
+
+* Once those values are replaced, start the `etcd` service in the node joining
+the cluster:
+
+----
+$ sudo systemctl start etcd.service
+----
+
+* Check for error messages:
+----
+$ journalctl -fu etcd.service
+----
+
+* Repeat the procedure on every `etcd` node joining the cluster.
+
+* Verify the cluster status and cluster health once all the nodes joined:
+
+----
+$ sudo etcdctl2 member list
+5cd050b4d701: name=master1 peerURLs=https://10.0.0.7:2380 clientURLs=https://10.0.0.7:2379 isLeader=true
+d0c57659d8990cbd: name=master2 peerURLs=https://10.0.0.5:2380 clientURLs=https://10.0.0.5:2379 isLeader=false
+e4696d637de3eb2d: name=master3 peerURLs=https://10.0.0.6:2380 clientURLs=https://10.0.0.6:2379 isLeader=false
+----
+
+----
+$ sudo etcdctl2 cluster-health
+member 5cd050b4d701 is healthy: got healthy result from https://10.0.0.7:2379
+member d0c57659d8990cbd is healthy: got healthy result from https://10.0.0.5:2379
+member e4696d637de3eb2d is healthy: got healthy result from https://10.0.0.6:2379
+cluster is healthy
+----
+
+==== `etcd` v3 Only Data Restore
+The restore procedure for v3 data is similar to the v2 data, restore healthy
+data files and create a new `etcd` cluster.
+
+Snapshot integrity may be optionally verified at restore time. If the
+snapshot is taken with `etcdctl snapshot save`, it will have an integrity
+hash that is checked by `etcdctl snapshot restore`. If the snapshot is
+copied from the data directory, there is no integrity hash and it will only
+restore by using `--skip-hash-check`.
+
+* Stop all `etcd` services
+
+----
+$ sudo systemctl stop etcd.service
+----
+
+The procedure to restore only the v3 data must be performed on a single
+`etcd` host, then add the rest of the nodes to the cluster.
+
+* Clear all the old data as `etcdctl` recreates it in the node where the
+restore procedure is going to be performed.
+----
+$ sudo rm -Rf /var/lib/etcd
+----
+
+* Use the `snapshot restore` command with the data from
+`/etc/etcd/etcd.conf` to match the following command:
+
+[subs=+quotes]
+----
+$ sudo etcdctl3 snapshot restore */backup/etcd-xxxxxx/backup.db* \
+  --data-dir /var/lib/etcd \
+  --name *master-0.example.com* \
+  --initial-cluster *"master-0.example.com=https://192.168.55.8:2380"* \ --initial-cluster-token *"etcd-cluster-1"* \
+  --initial-advertise-peer-urls *https://192.168.55.8:2380*
+
+2017-10-03 08:55:32.440779 I | mvcc: restore compact to 1041269
+2017-10-03 08:55:32.468244 I | etcdserver/membership: added member 40bef1f6c79b3163 [https://192.168.55.8:2380] to cluster 26841ebcf610583c
+----
+
+* Restore permissions and `selinux` context to the restored files:
+
+----
+$ sudo chown -R etcd.etcd /var/lib/etcd/
+$ sudo restorecon -Rv /var/lib/etcd
+----
+
+Start the `etcd` service:
+
+----
+$ sudo systemctl start etcd
+----
+
+* Check for error messages:
+
+----
+$ journalctl -fu etcd.service
+----
+
+*Adding more nodes*
+
+In case of a *{rhocp}* deployment where there are multiple `etcd` servers,
+the procedure is to join those servers once the first one is properly
+running.
+
+In the instance joining the cluster:
+
+* Get the `etcd` name for the instance in the `ETCD_NAME` variable:
+
+----
+$ sudo grep ETCD_NAME /etc/etcd/etcd.conf
+----
+
+* Get the IP where `etcd` listen for peer communication as:
+----
+$ sudo grep ETCD_INITIAL_ADVERTISE_PEER_URLS /etc/etcd/etcd.conf
+----
+
+* Back to the `etcd` host where `etcd` is properly running, add the new member:
+
+[subs=+quotes]
+----
+$ sudo etcdctl3 member add *<name>* \
+  --peer-urls="*<advertise_peer_urls>*"
+----
+
+The command outputs some variables. As an example:
+
+----
+ETCD_NAME="master2"
+ETCD_INITIAL_CLUSTER="master-0.example.com=https://192.168.55.8:2380"
+ETCD_INITIAL_CLUSTER_STATE="existing"
+----
+
+* Those values must be added to the instance joining the cluster replacing
+the previous values in the `/etc/etcd/etcd.conf` file
+
+----
+$ sudo vi /etc/etc/etcd.conf
+----
+
+* In the recently added `etcd` node, clean the `etcd` data directories to
+ensure the proper backup is restored keeping the running copy:
+
+----
+$ sudo mv /var/lib/etcd /var/lib/etcd.old
+$ sudo mkdir /var/lib/etcd
+$ sudo chown -R etcd.etcd /var/lib/etcd/
+$ sudo restorecon -Rv /var/lib/etcd/
+----
+
+or wipe the `etcd` data directory:
+
+----
+$ sudo rm -Rf /var/lib/etcd/*
+----
+
+* Start the etcd service in the recently added `etcd` host:
+
+----
+$ sudo systemctl start etcd
+----
+
+Check for errors:
+
+----
+$ sudo journalctl -fu etcd.service
+----
+
+* Repeat for every `etcd` node that is required to be added.
+
+* Finally, verify the cluster has been properly set:
+
+----
+$ sudo etcdctl3 endpoint health
+https://master-0.example.com:2379 is healthy: successfully committed proposal: took = 1.423459ms
+https://master-1.example.com:2379 is healthy: successfully committed proposal: took = 1.767481ms
+https://master-2.example.com:2379 is healthy: successfully committed proposal: took = 1.599694ms
+
+$ sudo etcdctl3 endpoint status
+https://master-0.example.com:2379, 40bef1f6c79b3163, 3.2.5, 28 MB, true, 9, 2878
+https://master-1.example.com:2379, 1ea57201a3ff620a, 3.2.5, 28 MB, false, 9, 2878
+https://master-2.example.com:2379, 59229711e4bc65c8, 3.2.5, 28 MB, false, 9, 2878
+----
+
+[[scaling_etcd]]
+=== Scaling `etcd`
+Scaling the `etcd` cluster can be performed vertically by adding more resources
+to the `etcd` hosts or horizontally by adding more `etcd` hosts.
+
+Scaling `etcd` horizontally can be useful to avoid *{rhocp}* API and controller
+services compete with `etcd` for resources if `etcd` was collocated on master
+instances.
+
+One important note about `etcd` is that due to the voting system `etcd` uses,
+the cluster must always contain an odd number of members.
+
+The new host requires  a fresh RHEL7 dedicated host. As a recommendation, the
+`etcd` storage should be located on an SSD disk to achieve maximum performance
+and ideally on a dedicated disk mounted in `/var/lib/etcd`.
+
+NOTE: *{rhocp}* 3.7 version ships with an automated way to add a new `etcd` host
+using `Ansible`.
+
+==== Prerequisites
+Before adding a new `etcd` host it is recommended to perform a backup of both
+`etcd` configuration and data just in case something happens the backup can
+be restored and the cluster be functional again.
+
+It is recommended also to perform a check of the current `etcd` cluster status
+to avoid adding new hosts where the cluster is not healthy:
+
+[subs=+quotes]
+----
+$ sudo etcdctl --cert-file=/etc/etcd/peer.crt \
+          --key-file=/etc/etcd/peer.key \
+          --ca-file=/etc/etcd/ca.crt \
+          --peers="https://*master-0.example.com*:2379,\
+          https://*master-1.example.com*:2379,\
+          https://*master-2.example.com*:2379"\
+          cluster-health
+member 5ee217d19001 is healthy: got healthy result from https://192.168.55.12:2379
+member 2a529ba1840722c0 is healthy: got healthy result from https://192.168.55.8:2379
+member ed4f0efd277d7599 is healthy: got healthy result from https://192.168.55.13:2379
+cluster is healthy
+----
+
+Using `etcd` v3 API:
+
+[subs=+quotes]
+----
+$ sudo ETCDCTL_API=3 etcdctl --cert="/etc/etcd/peer.crt" \
+          --key=/etc/etcd/peer.key \
+          --cacert="/etc/etcd/ca.crt" \
+          --endpoints="https://*master-0.example.com*:2379,\
+            https://*master-1.example.com*:2379,\
+            https://*master-2.example.com*:2379"
+            endpoint health
+https://master-0.example.com:2379 is healthy: successfully committed proposal: took = 5.011358ms
+https://master-1.example.com:2379 is healthy: successfully committed proposal: took = 1.305173ms
+https://master-2.example.com:2379 is healthy: successfully committed proposal: took = 1.388772ms
+----
+
+Before running the `scale-up` playbook, the new host is to be registered to
+the proper Red Hat software channels as:
+
+[subs=+quotes]
+----
+$ sudo subscription-manager register \
+    --username=*<username>* --password=*<password>*
+$ sudo subscription-manager attach --pool=*<poolid>*
+$ sudo subscription-manager repos --disable="*"
+$ sudo subscription-manager repos \
+    --enable=rhel-7-server-rpms \
+    --enable=rhel-7-server-extras-rpms
+----
+
+NOTE: `etcd` is hosted in the `rhel-7-server-extras-rpms` software channel.
+
+==== Adding a New `etcd` Host Using `Ansible`
+The process to use `Ansible` to add a new `etcd` host is to modify the `Ansible`
+inventory to create a new group named `[new_etcd]` with the new host, and adding
+the `new_etcd` group as a child of the `[OSEv3]` group as:
+
+[subs=+quotes]
+----
+[OSEv3:children]
+masters
+nodes
+etcd
+*new_etcd*
+
+... [OUTPUT ABBREVIATED] ...
+
+[etcd]
+master-0.example.com
+master-1.example.com
+master-2.example.com
+
+*[new_etcd]*
+*etcd0.example.com*
+----
+
+Then run the `etcd` scale-up playbook from the host that executed the initial
+installation and where the `Ansible` inventory file is:
+
+----
+$ ansible-playbook  /usr/share/ansible/openshift-ansible/playbooks/byo/openshift-etcd/scaleup.yml
+----
+
+Once the scale up procedure has finished properly, the inventory file is to be
+modified to reflect the current status by moving the new `etcd` host from the
+`[new_etcd]` group to the `[etcd]` group:
+
+[subs=+quotes]
+----
+[OSEv3:children]
+masters
+nodes
+etcd
+*new_etcd*
+
+... [OUTPUT ABBREVIATED] ...
+
+[etcd]
+master-0.example.com
+master-1.example.com
+master-2.example.com
+*etcd0.example.com*
+----
+
+If using `flannel`, the `flanneld` service configuration located in
+`/etc/sysconfig/flanneld` on every {rhocp} host is to be modified to include
+the new `etcd` host:
+
+[subs=+quotes]
+----
+FLANNEL_ETCD_ENDPOINTS=https://master-0.example.com:2379,https://master-1.example.com:2379,https://master-2.example.com:2379,*https://etcd0.example.com:2379*
+----
+
+Then, the `flanneld` service needs to be restarted:
+
+----
+$ sudo systemctl restart flanneld.service
+----
+
+==== Adding a New `etcd` Host Manually
+The following steps can be performed on any of the `etcd` members. If using
+the `Ansible` installer, the first host provided in the `[etcd]` `Ansible`
+inventory is used to generate the `etcd` configuration and certificates stored
+in `/etc/etcd/generated_certs`, so the recommendation is to perform the next
+steps in that `etcd` host.
+
+*Steps to be performed in the current `etcd` cluster*
+
+In order to create the `etcd` certificates, it is required to run the `openssl`
+command with the proper values. To make this process easier, a few environment
+variables can be created as:
+
+[subs=+quotes]
+----
+export NEW_ETCD_HOSTNAME="*etcd0.example.com*"
+export NEW_ETCD_IP="*192.168.55.21*"
+
+export CN=$NEW_ETCD_HOSTNAME
+export SAN="IP:${NEW_ETCD_IP}"
+export PREFIX="/etc/etcd/generated_certs/etcd-$CN/"
+export OPENSSLCFG="/etc/etcd/ca/openssl.cnf"
+----
+
+NOTE: The custom `openssl` extensions used as `etcd_v3_ca_*` include the
+$SAN environment variable as `subjectAltName`. See `/etc/etcd/ca/openssl.cnf`
+for more information.
+
+Create the directory where the configuration and certificates are stored:
+
+----
+# mkdir -p ${PREFIX}
+----
+
+Create the server certificate request and sign it:
+
+----
+# openssl req -new -config ${OPENSSLCFG} \
+    -keyout ${PREFIX}server.key  \
+    -out ${PREFIX}server.csr \
+    -reqexts etcd_v3_req -batch -nodes \
+    -subj /CN=$CN
+
+# openssl ca -name etcd_ca -config ${OPENSSLCFG} \
+    -out ${PREFIX}server.crt \
+    -in ${PREFIX}server.csr \
+    -extensions etcd_v3_ca_server -batch
+----
+
+Create the peer certificate request and sign it:
+
+----
+# openssl req -new -config ${OPENSSLCFG} \
+    -keyout ${PREFIX}peer.key \
+    -out ${PREFIX}peer.csr \
+    -reqexts etcd_v3_req -batch -nodes \
+    -subj /CN=$CN
+
+# openssl ca -name etcd_ca -config ${OPENSSLCFG} \
+  -out ${PREFIX}peer.crt \
+  -in ${PREFIX}peer.csr \
+  -extensions etcd_v3_ca_peer -batch
+----
+
+Copy the current `etcd` configuration file from the current node as an example
+to be modified later, and the `ca.crt` file:
+
+----
+# cp /etc/etcd/etcd.conf ${PREFIX}
+# cp /etc/etcd/ca.crt ${PREFIX}
+----
+
+Add the new host to the `etcd` cluster. Note the new host is not configured yet
+so the status stays as `unstarted` until the new host is properly configured:
+
+----
+# etcdctl2 member add ${NEW_ETCD_HOSTNAME} https://${NEW_ETCD_IP}:2380
+----
+
+This command outputs the following variables:
+
+----
+ETCD_NAME="<NEW_ETCD_HOSTNAME>"
+ETCD_INITIAL_CLUSTER="<NEW_ETCD_HOSTNAME>=https://<NEW_HOST_IP>:2380,<CLUSTERMEMBER1_NAME>=https:/<CLUSTERMEMBER2_IP>:2380,<CLUSTERMEMBER2_NAME>=https:/<CLUSTERMEMBER2_IP>:2380,<CLUSTERMEMBER3_NAME>=https:/<CLUSTERMEMBER3_IP>:2380"
+ETCD_INITIAL_CLUSTER_STATE="existing"
+----
+
+Those values must be overwritten by the current ones in the sample
+`${PREFIX}/etcd.conf` file. Also, it is required to modify the following
+variables with the new host IP (`${NEW_ETCD_IP}` can be used) in that file as
+well:
+
+----
+ETCD_LISTEN_PEER_URLS
+ETCD_LISTEN_CLIENT_URLS
+ETCD_INITIAL_ADVERTISE_PEER_URLS
+ETCD_ADVERTISE_CLIENT_URLS
+----
+
+To modify the `${PREFIX}/etcd.conf`, it is recommended to use any editor
+available in the system and double check for syntax errors or missing IPs as
+otherwise the `etcd` service may fail:
+
+----
+# vi ${PREFIX}/etcd.conf
+----
+
+Once the file has been properly modified, a `tgz` file with the certificates,
+the sample configuration file and the `ca` is created and copied to the new
+host:
+
+----
+# tar -czvf /etc/etcd/generated_certs/${CN}.tgz -C ${PREFIX} .
+# scp /etc/etcd/generated_certs/${CN}.tgz ${CN}:/tmp/
+----
+
+*Steps to be performed in the new `etcd` host*
+
+The new host is required to be subscribed to the proper Red Hat software
+channels as explained in the prerequisites section.
+
+Install `iptables-services` to provide `iptables` utilities to open the required
+ports for `etcd`:
+
+----
+$ sudo yum install -y iptables-services
+----
+
+Create firewall rules to allow `etcd` communicate:
+
+* Port 2379/tcp for clients
+* Port 2380/tcp for peer communication
+
+----
+$ sudo systemctl enable iptables.service --now
+$ sudo iptables -N OS_FIREWALL_ALLOW
+$ sudo iptables -t filter -I INPUT -j OS_FIREWALL_ALLOW
+$ sudo iptables -A OS_FIREWALL_ALLOW -p tcp -m state --state NEW -m tcp --dport 2379 -j ACCEPT
+$ sudo iptables -A OS_FIREWALL_ALLOW -p tcp -m state --state NEW -m tcp --dport 2380 -j ACCEPT
+$ sudo iptables-save | sudo tee /etc/sysconfig/iptables
+----
+
+NOTE: In this example, a new chain `OS_FIREWALL_ALLOW` is created as it is the
+standard naming the *{rhocp}* installer uses for firewall rules.
+
+WARNING: If the environment is hosted in an IaaS environment, it is required to
+modify the security groups for the instance to allow incoming traffic to those
+ports as well.
+
+Install `etcd` software:
+
+----
+$ sudo yum install -y etcd
+----
+
+Ensure the service is not running
+
+----
+$ sudo systemctl disable etcd --now
+----
+
+Remove any etcd configuration and data:
+
+----
+$ sudo rm -Rf /etc/etcd/*
+$ sudo rm -Rf /var/lib/etcd/*
+----
+
+Untar the certificates and configuration files
+
+[subs=+quotes]
+----
+$ sudo tar xzvf /tmp/*etcd0.example.com*.tgz -C /etc/etcd/
+----
+
+Restore `etcd` configuration and data owner:
+
+----
+$ sudo chown -R etcd.etcd /etc/etcd/
+$ sudo chown -R etcd.etcd /var/lib/etcd/
+----
+
+Start etcd on the new host:
+
+----
+$ sudo systemctl enable etcd --now
+----
+
+Verify the host has been added to the cluster and the current cluster health:
+
+[subs=+quotes]
+----
+$ sudo etcdctl --cert-file=/etc/etcd/peer.crt \
+          --key-file=/etc/etcd/peer.key \
+          --ca-file=/etc/etcd/ca.crt \
+          --peers="https://*master-0.example.com*:2379,\
+          https://*master-1.example.com*:2379,\
+          https://*master-2.example.com*:2379,\
+          https://*etcd0.example.com*:2379"\
+          cluster-health
+member 5ee217d19001 is healthy: got healthy result from https://192.168.55.12:2379
+member 2a529ba1840722c0 is healthy: got healthy result from https://192.168.55.8:2379
+member 8b8904727bf526a5 is healthy: got healthy result from https://192.168.55.21:2379
+member ed4f0efd277d7599 is healthy: got healthy result from https://192.168.55.13:2379
+cluster is healthy
+----
+
+Using `etcd` v3 API:
+
+[subs=+quotes]
+----
+$ sudo ETCDCTL_API=3 etcdctl --cert="/etc/etcd/peer.crt" \
+          --key=/etc/etcd/peer.key \
+          --cacert="/etc/etcd/ca.crt" \
+          --endpoints="https://*master-0.example.com*:2379,\
+            https://*master-1.example.com*:2379,\
+            https://*master-2.example.com*:2379,\
+            https://*etcd0.example.com*:2379"\
+            endpoint health
+https://master-0.example.com:2379 is healthy: successfully committed proposal: took = 5.011358ms
+https://master-1.example.com:2379 is healthy: successfully committed proposal: took = 1.305173ms
+https://master-2.example.com:2379 is healthy: successfully committed proposal: took = 1.388772ms
+https://etcd0.example.com:2379 is healthy: successfully committed proposal: took = 1.498829ms
+----
+
+*Steps to be performed in all the {rhocp} masters*
+
+The *{rhocp}* masters configuration is to be modified to add the new `etcd` host
+to the list of the `etcd` servers *{rhocp}* uses to store the data, located in
+the `etcClientInfo` section of the `/etc/origin/master/master-config.yaml` file
+on every master:
+
+[subs=+quotes]
+----
+etcdClientInfo:
+  ca: master.etcd-ca.crt
+  certFile: master.etcd-client.crt
+  keyFile: master.etcd-client.key
+  urls:
+    - https://master-0.example.com:2379
+    - https://master-1.example.com:2379
+    - https://master-2.example.com:2379
+    *- https://etcd0.example.com:2379*
+----
+
+Restart the master API service on every master:
+
+----
+$ sudo systemctl restart atomic-openshift-master-api
+----
+
+NOTE: On a single master cluster installation, ```$ sudo systemctl restart atomic-openshift-master```
+
+WARNING: As explained before, the number of `etcd` nodes must  be odd, so as a
+recommendation, at least two hosts must be added.
+
+If using `flannel`, the `flanneld` service configuration located in
+`/etc/sysconfig/flanneld` on every {rhocp} host must be modified to include
+the new `etcd` host:
+
+[subs=+quotes]
+----
+FLANNEL_ETCD_ENDPOINTS=https://master-0.example.com:2379,https://master-1.example.com:2379,https://master-2.example.com:2379,*https://etcd0.example.com:2379*
+----
+
+Then, the `flanneld` service needs to be restarted:
+
+----
+$ sudo systemctl restart flanneld.service
+----
+
+[[removing_an_etcd_host]]
+=== Removing an `etcd` Host
+In the event of a failed `etcd` host where it cannot be restored, the process
+to remove the `etcd` failed host to the cluster is to perform the following
+steps.
+
+WARNING: Ideally the `etcd` cluster maintains quorum while the removing
+operation happens, such as removing a single host from a three nodes cluster.
+
+*Steps to be performed in all the *{rhocp}* masters*
+
+The *{rhocp}* masters configuration is to be modified to remove the failed
+`etcd` host of the list of the `etcd` servers *{rhocp}* uses to store the data,
+located in the `etcClientInfo` section of the
+`/etc/origin/master/master-config.yaml` file on every master:
+
+[subs=+quotes]
+----
+etcdClientInfo:
+  ca: master.etcd-ca.crt
+  certFile: master.etcd-client.crt
+  keyFile: master.etcd-client.key
+  urls:
+    - https://master-0.example.com:2379
+    - https://master-1.example.com:2379
+    *- https://master-2.example.com:2379*
+----
+
+Restart the master API service on every master:
+
+----
+$ sudo systemctl restart atomic-openshift-master-api
+----
+
+NOTE: On a single master cluster installation, ```$ sudo systemctl restart atomic-openshift-master```
+
+*Steps to be performed in the current `etcd` cluster*
+
+The failed host is to be removed from the cluster from the `etcd` point of view
+as well by running the following command in any of the remaining `etcd` hosts:
+
+----
+$ sudo etcdctl2 cluster-health
+member 5ee217d19001 is healthy: got healthy result from https://192.168.55.12:2379
+member 2a529ba1840722c0 is healthy: got healthy result from https://192.168.55.8:2379
+failed to check the health of member 8372784203e11288 on https://192.168.55.21:2379: Get https://192.168.55.21:2379/health: dial tcp 192.168.55.21:2379: getsockopt: connection refused
+member 8372784203e11288 is unreachable: [https://192.168.55.21:2379] are all unreachable
+member ed4f0efd277d7599 is healthy: got healthy result from https://192.168.55.13:2379
+cluster is healthy
+
+$ sudo etcdctl2 member remove 8372784203e11288
+Removed member 8372784203e11288 from cluster
+
+$ sudo etcdctl2 cluster-health
+member 5ee217d19001 is healthy: got healthy result from https://192.168.55.12:2379
+member 2a529ba1840722c0 is healthy: got healthy result from https://192.168.55.8:2379
+member ed4f0efd277d7599 is healthy: got healthy result from https://192.168.55.13:2379
+cluster is healthy
+----
+
+NOTE: The remove command requires the `etcd` ID, not the hostname.
+
+The `etcd` configuration is to be modified as well to avoid using the failed
+host if the service is restarted by modifying the `/etc/etcd/etcd.conf` file
+in all the remaining `etcd` hosts and removing the references to the failed
+host, in the `ETCD_INITIAL_CLUSTER` variable:
+
+----
+$ sudo vi /etc/etcd/etcd.conf
+----
+
+Before:
+----
+ETCD_INITIAL_CLUSTER=master-0.example.com=https://192.168.55.8:2380,master-1.example.com=https://192.168.55.12:2380,master-2.example.com=https://192.168.55.13:2380
+----
+
+After:
+----
+ETCD_INITIAL_CLUSTER=master-0.example.com=https://192.168.55.8:2380,master-1.example.com=https://192.168.55.12:2380
+----
+
+NOTE: Restarting the `etcd` services is not required as the failed host has
+been removed using `etcdctl` command line.
+
+Finally, modify the `Ansible` inventory file to reflect the current status of
+the cluster and to avoid issues if running some other playbook:
+
+[subs=+quotes]
+----
+[OSEv3:children]
+masters
+nodes
+etcd
+
+... [OUTPUT ABBREVIATED] ...
+
+[etcd]
+master-0.example.com
+master-1.example.com
+----
+
+If using `flannel`, the `flanneld` service configuration located in
+`/etc/sysconfig/flanneld` on every {rhocp} host is to be modified to remove
+the `etcd` host:
+
+[subs=+quotes]
+----
+FLANNEL_ETCD_ENDPOINTS=https://master-0.example.com:2379,https://master-1.example.com:2379,https://master-2.example.com:2379
+----
+
+Then, the `flanneld` service needs to be restarted:
+
+----
+$ sudo systemctl restart flanneld.service
+----
+
+==== `etcd` Host Replacement
+In the event of an `etcd` node breakage where it needs to be replaced, the
+process involves removing the `etcd` node from the `etcd` cluster following all
+the steps from the <<removing_an_etcd_host>> procedure and then scale up the
+`etcd` cluster with the new host using the scale up `Ansible` playbook or the
+manual procedure <<scaling_etcd,explained before>>.
+
+WARNING: Ideally the `etcd` cluster maintains quorum while the replacement
+operation happens, that means if in a 3 nodes cluster it is required to replace
+2 nodes, perform the operation in two steps, first replace a single node, then
+replace the other instead doing the 2 nodes replacement at the same time.
+
+If the host replacement operation occurs while the `etcd` cluster maintains
+quorum, the *{rhocp}* cluster operations are not affected except if there is a
+large `etcd`data to replicate where some operations can be slowed down.
+
+NOTE: A backup of `etcd` data and configuration files is to be perfomed before
+any procedure involving the `etcd` cluster to ensure it can be restored if
+something happens.

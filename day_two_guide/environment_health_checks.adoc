@@ -1,0 +1,49 @@
+[[day_two_environment_health_checks]]
+= Environment health checks
+{product-author}
+{product-version}
+:data-uri:
+:icons:
+:experimental:
+:toc: macro
+:toc-title:
+:prewrap!:
+
+toc::[]
+
+This topic contains steps to verify the overall health of the {product-title} cluster, as well as its various parts, and describe the proper behavior of parts with the most common problems.
+
+Knowing the verification steps for the various components is the first step to troubleshooting issues. If experiencing issues, you can use the checks provided in this section to diagnose any problems.
+
+== Checking complete environment health
+[[day-two-guide-complete-deployment-health-check]]
+include::day_two_guide/topics/complete_deployment_health_check.adoc[]
+
+== Host health
+[[day-two-guide-host-health]]
+include::day_two_guide/topics/host_health.adoc[]
+
+== Network connectivity
+[[day-two-guide-network-connectivity]]
+include::day_two_guide/topics/network_connectivity.adoc[]
+
+== Storage
+[[day-two-guide-storage]]
+include::day_two_guide/topics/storage.adoc[]
+
+== Docker storage
+[[day-two-guide-docker-storage]]
+include::day_two_guide/topics/docker_storage.adoc[]
+
+== API Service Status
+[[day-two-guide-api-service-status]]
+include::day_two_guide/topics/api_service_status.adoc[]
+
+== Controller Role Verification
+[[day-two-guide-controller-role-verification]]
+include::day_two_guide/topics/controller_role_verification.adoc[]
+
+== Verifying correct Maximum Transmission Unit (MTU) size
+[[day-two-guide-verifying_mtu]]
+include::day_two_guide/topics/verifying_mtu.adoc[]
+

@@ -1,0 +1,11 @@
+[[day-two-guide-index]]
+= Overview
+{product-author}
+{product-version}
+:data-uri:
+:icons:
+:experimental:
+
+This section is built for {product-title} administrators with a fresh installation. The following topics give an overview of commonly found daily tasks.
+
+Differences between this and the Admin Guide.

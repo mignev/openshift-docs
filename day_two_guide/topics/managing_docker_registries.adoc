@@ -1,0 +1,651 @@
+////
+Managing Docker registries
+
+Module included in the following assemblies:
+
+* day_two_guide/docker_tasks.adoc
+////
+
+{rhocp} can be configured to use external `docker` registries to
+pull images. Within the configuration files the ability exists to allow or deny
+certain images or registries.
+
+If the external registry is exposed using certificates for the network traffic
+it can be named as a secure registry, otherwise, it is an insecure registry
+as traffic between the registry and the host is plain and not encrypted.
+
+==== Docker Search External Registries
+By default, the `docker` daemon has the ability to pull images from any registry but
+by default the search operation is performed against `docker.io/` and `registry.access.redhat.com`, but the daemon
+can be be configured to search images from other registries using
+the `--add-registry` flag as an argument for the `docker` daemon.
+
+NOTE: Red Hat includes the ability to search images from the Red Hat Registry
+`registry.access.redhat.com` by default in the RHEL `docker` package.
+
+To allow users to search for images using `docker search` with other registries,
+add those registries to the `ADD_REGISTRY` variable in the
+`/etc/containers/registries.conf` file with the `registries` flag as:
+
+[subs=+quotes]
+----
+registries:
+  - registry.access.redhat.com
+  - my.registry.example.com
+----
+
+Prior to 3.6 this was accomplished via `/etc/sysconfig/docker` with the following flags:
+
+[subs=+quotes]
+----
+ADD_REGISTRY="--add-registry=registry.access.redhat.com --add-registry=my.registry.example.com"
+----
+
+NOTE: The first registry added is the first registry searched.
+
+Restart the `docker` daemon to allow for `my.registry.example.com` to be used.
+
+[subs=+quotes]
+----
+$ *sudo systemctl restart docker.service*
+----
+
+NOTE: Restarting the `docker` daemon will cause the `docker` containers to be
+restarted.
+
+Using the *{rhocp}* `Ansible` installer, this can be configured using the
+`openshift_docker_additional_registries` variable in the `Ansible` hosts file
+as:
+
+----
+openshift_docker_additional_registries=registry.access.redhat.com,my.registry.example.com
+----
+
+==== Docker External Registries Whitelist and Blacklist
+`docker` can be configured to block operations from external registries by
+configuring the `registries` and `block_registries` flags for the `docker`
+daemon.
+
+To configure the whitelist:
+
+* Add the allowed registries to the `ADD_REGISTRY` variable in the
+`/etc/containers/registries.conf` file with the `registries` flag:
+
+[subs=+quotes]
+----
+registries:
+  - registry.access.redhat.com
+  - my.registry.example.com
+----
+
+Prioer to 3.6 the following file is modified, `/etc/sysconfig/docker`:
+
+[subs=+quotes]
+----
+ADD_REGISTRY="--add-registry=registry.access.redhat.com --add-registry=my.registry.example.com"
+----
+
+NOTE: If the `docker.io` registry wants to be used, it needs to be added as any
+other external registry.
+
+* Block the rest of the registries:
+----
+block_registries:
+   - all
+----
+
+* Block the rest of the registries in older versions:
+
+----
+BLOCK_REGISTRY='--block-registry=all'
+----
+
+Restart the `docker` daemon
+
+[subs=+quotes]
+----
+$ *sudo systemctl restart docker.service*
+----
+
+NOTE: Restarting the `docker` daemon will cause the `docker` containers to be
+restarted.
+
+In this example, the `docker.io` registry has been blacklisted, so any operation
+regarding that registry fails.
+
+[subs=+quotes]
+----
+$ *sudo docker pull hello-world*
+Using default tag: latest
+Trying to pull repository registry.access.redhat.com/hello-world ...
+Trying to pull repository my.registry.example.com/hello-world ...
+Trying to pull repository registry.access.redhat.com/hello-world ...
+unknown: Not Found
+$ sudo docker pull docker.io/hello-world
+Using default tag: latest
+Trying to pull repository docker.io/library/hello-world ...
+All endpoints blocked.
+----
+
+Adding `docker.io` back to the `registries` variable by modifying the file again and restarting the service.
+
+----
+registries:
+  - registry.access.redhat.com
+  - my.registry.example.com
+  - docker.io
+block_registries:
+  - all
+----
+
+or
+
+----
+ADD_REGISTRY="--add-registry=registry.access.redhat.com --add-registry=my.registry.example.com --add-registry=docker.io"
+BLOCK_REGISTRY='--block-registry=all'
+----
+
+----
+$ sudo systemctl restart docker
+----
+
+The image is now available to be pulled.
+
+----
+$ sudo docker pull docker.io/hello-world
+Using default tag: latest
+Trying to pull repository docker.io/library/hello-world ...
+latest: Pulling from docker.io/library/hello-world
+
+9a0669468bf7: Pull complete
+Digest: sha256:0e06ef5e1945a718b02a8c319e15bae44f47039005530bc617a5d071190ed3fc
+----
+
+NOTE: In the event of using an external registry is required to modify the
+`docker` daemon configuration file in all the *{rhocp}* nodes that require to use
+that registry. It is recommended to create a blacklist in all the *{rhocp}* nodes
+to avoid malicious containers to be executed in the *{rhocp}* environment.
+
+Using the *{rhocp}* `Ansible` installer, this can be configured using the
+`openshift_docker_additional_registries` and
+`openshift_docker_blocked_registries` variables in the `Ansible` hosts file as:
+
+----
+openshift_docker_additional_registries=registry.access.redhat.com,my.registry.example.com
+openshift_docker_blocked_registries=all
+----
+
+==== Secure Registries
+In order to be able to pull images from an external registry, it is required
+to trust the registry certificates, otherwise the pull image operation fails.
+
+In order to do so, see [Installing a Certificate Authority Certificate for External Registries]
+
+If using blacklist, the external registries should be added to the
+`registries` variable explained before.
+
+
+==== Insecure Registries
+In the event of that the external registry uses a non-trusted certificate or if it
+runs without certificates at all it is recommended to avoid use that registry.
+
+The registry should be added using the
+`--insecure-registry` flag to allow for the `docker` daemon to pull images from the repository.
+
+This flag behavior is the same as the `--add-registry` but the `docker`
+operation is not verified.
+
+NOTE: The registry should be added to both flags to be able to search from it
+and if there is a blacklist, to perform other operations as pulling images.
+
+For testing purposes, an example is shown on how to add a localhost insecure
+registry.
+
+The first step is to modify `/etc/containers/registries.conf` configuration file to add the localhost
+insecure registry.
+
+----
+registries:
+  - registry.access.redhat.com
+  - my.registry.example.com
+  - docker.io
+insecure_registries:
+  - localhost:5000
+block_registries:
+  - all
+----
+
+Prior to 3.6 modify the `/etc/sysconfig/docker` configuration file to add the localhost.
+
+----
+ADD_REGISTRY="--add-registry=registry.access.redhat.com --add-registry=my.registry.example.com --add-registry=docker.io --add-registry=localhost:5000"
+INSECURE_REGISTRY="--insecure-registry=localhost:5000"
+BLOCK_REGISTRY='--block-registry=all'
+----
+
+
+Now restart the `docker` daemon to use the registry.
+
+----
+$ sudo systemctl restart docker.service
+----
+
+NOTE: Restarting the `docker` daemon will cause the `docker` containers to be
+restarted.
+
+Test the image pull by running a localhost daemon attached to port 5000/tcp and pushing
+an image.
+
+----
+$ sudo docker run -p 5000:5000 registry:2
+$ sudo docker pull openshift/hello-openshift
+$ sudo docker tag docker.io/openshift/hello-openshift:latest localhost:5000/hello-openshift-local:latest
+$ sudo docker push localhost:5000/hello-openshift-local:latest
+----
+
+Using the *{rhocp}* `Ansible` installer, this can be configured using the
+`openshift_docker_additional_registries`, `openshift_docker_blocked_registries`
+and `openshift_docker_insecure_registries` variables in the `Ansible` hosts
+file as:
+
+----
+openshift_docker_additional_registries=registry.access.redhat.com,my.registry.example.com,localhost:5000
+openshift_docker_insecure_registries=localhost:5000
+openshift_docker_blocked_registries=all
+----
+
+==== Authenticated Registries
+Using authenticated registries with `docker` requires the `docker` daemon to
+login in to the registry using username and password. When using *{rhocp}*, a different
+set of steps must be performed as the users cannot run `docker login`
+commands on the host. Authenticated registries can be used to limit the images a users can pull or
+who access in the external registries.
+
+In the event of the external `docker` registries to require authentication, the
+process to authenticate in *{rhocp}* is to create a special secret in the project
+that should be able to use that registry and use that secret to perform the
+`docker` operations.
+
+Create a `dockercfg` secret in the *{rhocp}* project where the user is going to
+log in to the `docker` registry:
+
+[subs=+quotes]
+----
+$ oc project *myproject*
+$ oc secrets new-dockercfg *mydockerregistry* --docker-server=*my.registry.example.com* --docker-username=*username* --docker-password=*mypassword* --docker-email=*me@example.com*
+----
+
+If a `.dockercfg` file exists, the secret can be created using the `oc` command.
+
+[subs=+quotes]
+----
+$ oc secrets new *mydockerregistry* .dockercfg=*.dockercfg*
+----
+
+The `$HOME/.docker/config.json` file must be populated as well.
+
+[subs=+quotes]
+----
+$ oc secrets new *mydockerregistry* .dockerconfigjson=*.docker/config.json*
+----
+
+Use the `dockercfg` secret to pull images from the authenticated registry by
+linking the secret to the service account performing the pull operations. The
+default service account to pull images is named `default`:
+
+[subs=+quotes]
+----
+$ oc secrets link default *mydockerregistry* --for=pull
+----
+
+For pushing images using the S2I feature, the `dockercfg` secret is mounted
+in the S2I pod, so it needs to be linked to the proper service account that
+performs the build. The default service account used to build images is named
+`builder`.
+
+[subs=+quotes]
+----
+$ oc secrets link builder *mydockerregistry*
+----
+
+Then, in the `buildconfig`, the secret should be specified for push or pull
+operations.
+
+[subs=+quotes]
+----
+"type": "Source",
+"sourceStrategy": {
+    "from": {
+        "kind": "DockerImage",
+        "name": "*my.registry.example.com*/myproject/myimage:stable"
+    },
+    "pullSecret": {
+        "name": "*mydockerregistry*"
+    },
+...[OUTPUT ABBREVIATED]...
+"output": {
+    "to": {
+        "kind": "DockerImage",
+        "name": "*my.registry.example.com*/myproject/myimage:latest"
+    },
+    "pushSecret": {
+        "name": "*mydockerregistry*"
+    },
+...[OUTPUT ABBREVIATED]...
+----
+
+If the external registry delegates authentication to external services,
+it is required to create both `dockercfg` secrets, the registry one using the
+registry URL and the external authentication system using its own URL and
+both secrets should be added to the service accounts as well.
+
+[subs=+quotes]
+----
+$ oc project *myproject*
+$ oc secrets new-dockercfg *mydockerregistry* --docker-server=*my.registry.example.com* --docker-username=*username* --docker-password=*mypassword* --docker-email=*me@example.com*
+$ oc secrets new-dockercfg *mydockerregistryextauth* --docker-server=*my.authsystem.example.com* --docker-username=*username* --docker-password=*mypassword* --docker-email=*me@example.com*
+$ oc secrets link default *mydockerregistry* --for=pull
+$ oc secrets link default *mydockerregistryextauth* --for=pull
+$ oc secrets link builder *mydockerregistry*
+$ oc secrets link builder *mydockerregistryextauth*
+----
+
+==== ImagePolicy Admission Plugin
+An admission control plugin intercepts requests to the API and performs checks
+depending on the rules it has configured and allows/denies certain actions
+based on those rules.
+{rhocp} can limit the allowed images running in the environment using an
+admission plugin named `ImagePolicy` where it can control:
+
+* The source of images: which registries can be used to pull images
+* Image resolution: force pods to run with immutable digests to ensure the
+image does not change due to a re-tag
+* Container image label restrictions: force an image to have or not have
+particular labels
+* Image annotation restrictions: force an image in the integrated container
+registry to have or not have particular annotations
+
+WARNING: ImagePolicy admission plug-in is currently considered beta.
+
+If the `ImagePolicy` plugin is enabled, it needs to be modified to allow
+the external registries to be used by modifying the
+`/etc/origin/master/master-config.yaml` file on every master node adding the
+following snippet:
+
+[subs=+quotes]
+----
+admissionConfig:
+  pluginConfig:
+    openshift.io/ImagePolicy:
+      configuration:
+        kind: ImagePolicyConfig
+        apiVersion: v1
+        executionRules:
+        - name: allow-images-from-other-registries
+          onResources:
+          - resource: pods
+          - resource: builds
+          matchRegistries:
+          - docker.io
+          - *my.registry.example.com*
+          - registry.access.redhat.com
+----
+
+NOTE: Enabling `ImagePolicy` requires users to specify the registry when
+deploying an application like `oc new-app docker.io/kubernetes/guestbook`
+instead `oc new-app kubernetes/guestbook`, otherwise it fails.
+
+To enable the admission plugins at *{rhocp}* installation time, the
+`openshift_master_admission_plugin_config` variable can be used with a `json`
+formatted string including all the `pluginConfig` configuration, like:
+
+[subs=+quotes]
+----
+openshift_master_admission_plugin_config={"openshift.io/ImagePolicy":{"configuration":{"kind":"ImagePolicyConfig","apiVersion":"v1","executionRules":[{"name":"allow-images-from-other-registries","onResources":[{"resource":"pods"},{"resource":"builds"}],"matchRegistries":["docker.io","*my.registry.example.com*","registry.access.redhat.com"]}]}}}
+----
+
+WARNING: There is a current issue to be fixed in *{rhocp}* 3.6.1 where
+`ImagePolicy` is not working as expected where pods can not be deployed using
+default templates with following error message `Failed create | Error creating: Pod "" is invalid: spec.containers[0].\image: Forbidden: this image is prohibited by policy`, see
+https://access.redhat.com/solutions/3165041[Image Policy is not working as expected] for a workaround.
+
+NOTE: For more information about the `ImagePolicy` admission plugin, see https://docs.openshift.com/container-platform/3.6/admin_guide/image_policy.html[Image Policy]
+
+==== Import Images from External Registries
+{rhocp} users can import images to create `imagestreams` using the
+`oc import-image` command and *{rhocp}* can be configured to allow or deny image
+imports from external registries.
+
+To configure the allowed registries where users can import images, the following
+snippet is used in the `/etc/origin/master/master-config.yaml` file:
+
+[subs=+quotes]
+----
+imagePolicyConfig:
+  allowedRegistriesForImport:
+  - domainName: docker.io
+  - domainName: '\*.docker.io'
+  - domainName: '*.redhat.com'
+  - domainName: '*my.registry.example.com*'
+----
+
+To import images from an external authenticated registry, it is required to
+create a secret within the project that *{rhocp}* uses when importing the image.
+
+Even if not recommended, if the external authenticated registry is insecure or
+the certificates cannot be trusted, the `oc import-image` command can be used
+with the `--insecure=true`.
+
+If the external authenticated registry is secure, the registry certificate
+should be trusted in the master hosts as they run the registry import
+controller as:
+
+Copy the certificate in the `/etc/pki/ca-trust/source/anchors/`
+
+[subs=+quotes]
+----
+$ sudo cp *my.registry.example.com.crt* /etc/pki/ca-trust/source/anchors/*my.registry.example.com.crt*
+----
+
+Run `update-ca-trust` command.
+
+----
+$ sudo update-ca-trust
+----
+
+Finally, restart the master services on all the *{rhocp}* masters.
+
+----
+$ sudo systemctl restart atomic-openshift-master-api
+$ sudo systemctl restart atomic-openshift-master-controllers
+----
+
+The certificate for the external registry should be trusted in the {rhocp}
+registry as well. There is no official procedure currently for adding the
+certificate to the registry pod, but the following workaround can be used:
+
+----
+$ for i in pem openssl java; do
+  oc create configmap ca-trust-extracted-${i} --from-file /etc/pki/ca-trust/extracted/${i}
+  oc set volume dc/docker-registry --add -m /etc/pki/ca-trust/extracted/${i} --configmap-name=ca-trust-extracted-${i} --name ca-trust-extracted-${i}
+done
+----
+
+WARNING: This workaround creates `configmaps` with all the trusted certificates
+from the system running those commands, so the recommendation is to run it from
+a clean system where just the required certificates are trusted.
+
+Another option is to modify the registry image in order to trust the proper
+certificates rebuilding the image using a `Dockerfile` as:
+
+[subs=+quotes]
+----
+FROM registry.access.redhat.com/openshift3/ose-docker-registry:v3.6
+ADD *my.registry.example.com.crt* /etc/pki/ca-trust/source/anchors/
+USER 0
+RUN update-ca-trust extract
+USER 1001
+----
+
+Rebuild the image, push it to a `docker` registry and use that image as
+`spec.template.spec.containers["name":"registry"].image` in the registry
+`deploymentconfig`:
+
+[subs=+quotes]
+----
+$ oc patch dc docker-registry -p '{"spec":{"template":{"spec":{"containers":[{"name":"registry","image":"*myregistry.example.com/openshift3/ose-docker-registry:latest*"}]}}}}'
+
+----
+
+NOTE: Red Hat is investigating on a procedure to provide certificates to the
+{rhocp} pods in the bugzilla
+https://bugzilla.redhat.com/show_bug.cgi?id=1475868[1475868].
+
+To add the `imagePolicyConfig` configuration at *{rhocp}* installation time, the
+`openshift_master_image_policy_config` variable can be used with a `json`
+formatted string including all the `imagePolicyConfig` configuration, like:
+
+[subs=+quotes]
+----
+openshift_master_image_policy_config={"imagePolicyConfig":{"allowedRegistriesForImport":[{"domainName":"docker.io"},{"domainName":"\*.docker.io"},{"domainName":"*.redhat.com"},{"domainName":"*my.registry.example.com*"}]}}
+----
+
+NOTE: For more information about the `imagePolicyConfig` see https://docs.openshift.com/container-platform/3.6/install_config/master_node_configuration.html#master-config-image-config[Image Configuration]
+
+==== {ocpreg} Integration
+{rhocp} can be installed as a stand-alone container registry to provide just the
+registry capabilities but with the advantages of running in a {rhocp} platform.
+
+NOTE: To see more information about the {ocpreg} and how to install it, see
+https://docs.openshift.com/container-platform/3.6/install_config/install/stand_alone_registry.html[Installing a Stand-alone Deployment of OpenShift Container Registry]
+
+To integrate a {ocpreg} with the current {rhocp} platform, all the previous
+sections apply, as from the {rhocp} point of view it is treated as an external
+registry, but there are some extra tasks that needs to be performed because the
+{ocpreg} is a multi-tenant registry and the authorization model from {rhocp}
+applies so when a new project is created in the {rhocp} environment, the
+{ocpreg} doesn't create a project within its environment as it is independent.
+
+===== Connect {ocpreg} Project with the {rhocp} Cluster
+As the {ocpreg} is a full {rhocp} environment with a registry pod and a web
+interface, the process to create a new project in the {ocpreg} is performed
+using the `oc new-project` or `oc create` command line or via the web interface.
+
+Once the project has been created, the usual service accounts (`builder`,
+`default` & `deployer`) are created automatically in the {ocpreg} project as
+well as the project admin user is granted permissions. Different users can be
+authorized to push/pull images as well as "anonymous" users.
+
+There can be several use cases regarding the {rhocp} and the {ocpreg} such as
+allowing all the users to pull images from this new project within the
+{ocpreg}, but if the {rhocp} administrator wants to have a 1:1 project
+relationship between the {rhocp} and the {ocpreg}, where the users can push and
+pull images from that specific project, some steps are required.
+
+WARNING: The {ocpreg} web console shows a token to be used for pull/push
+operations but the token showed there is a session token, so it expires.
+Creating a service account with specific permissions allows the admin to limit
+the permissions for the service account so for instance, different service
+accounts can be used for push or pull images. The user benefits to not worry
+about token expiration, secret recreation, etc. as the service account tokens
+doesn't expire.
+
+Create the {rhocp} project with `oc new-project` or `oc create` as:
+
+[subs=+quotes]
+----
+$ oc login *ocp.example.com*
+$ oc new-project *myfancyproject*
+----
+
+Create the {ocpreg} project:
+
+[subs=+quotes]
+----
+$ oc login *myregistry.example.com*
+$ oc new-project *myfancyproject*
+----
+
+Create a service account in the {ocpreg} project:
+
+[subs=+quotes]
+----
+$ oc login *myregistry.example.com*
+$ oc create serviceaccount *myserviceaccount* -n *myfancyproject*
+----
+
+Give permissions to push and pull images using the `registry-editor` role:
+
+[subs=+quotes]
+----
+$ oc login *myregistry.example.com*
+$ oc adm policy add-role-to-user registry-editor -z *myserviceaccount* -n *myfancyproject*
+----
+
+NOTE: If only pull permissions are required, the `registry-viewer` role can be
+used.
+
+Get the service account token:
+
+[subs=+quotes]
+----
+$ oc login *myregistry.example.com*
+$ TOKEN=$(oc sa get-token *myserviceaccount* -n *myfancyproject*)
+----
+
+Use the token as the password to create a dockercfg secret in the {rhocp}
+environment:
+
+[subs=+quotes]
+----
+$ oc login *ocp.example.com*
+$ oc secrets new-dockercfg *myregistry*
+  --docker-server=*myregistry.example.com* --docker-username=*notused* --docker-password=${TOKEN} --docker-email=*me@example.com*
+----
+
+Use the `dockercfg` secret to pull images from the {ocpreg} by
+linking the secret to the service account performing the pull operations. The
+default service account to pull images is named `default`:
+
+[subs=+quotes]
+----
+$ oc login *ocp.example.com*
+$ oc secrets link default *myregistry* --for=pull
+----
+
+For pushing images using the S2I feature, the `dockercfg` secret is mounted
+in the S2I pod, so it needs to be linked to the proper service account that
+performs the build. The default service account used to build images is named
+`builder`:
+
+[subs=+quotes]
+----
+$ oc login *ocp.example.com*
+$ oc secrets link builder *myregistry*
+----
+
+Then, in the `buildconfig`, the secret should be specified for push or pull
+operations:
+
+[subs=+quotes]
+----
+"type": "Source",
+"sourceStrategy": {
+    "from": {
+        "kind": "DockerImage",
+        "name": "*myregistry.example.com/myfancyproject/myimage:stable*"
+    },
+    "pullSecret": {
+        "name": "*myregistry*"
+    },
+...[OUTPUT ABBREVIATED]...
+"output": {
+    "to": {
+        "kind": "DockerImage",
+        "name": "*myregistry.example.com/myfancyproject/myimage:latest*"
+    },
+    "pushSecret": {
+        "name": "*myregistry*"
+    },
+...[OUTPUT ABBREVIATED]...
+----

@@ -1,0 +1,61 @@
+[[day_two_host_level_tasks]]
+= Host-level tasks
+{product-author}
+{product-version}
+:data-uri:
+:icons:
+:experimental:
+:toc: macro
+:toc-title:
+:prewrap!:
+
+toc::[]
+
+== Adding a host to the cluster
+
+For information on adding master or node hosts to a cluster, see the xref:../install_config/adding_hosts_to_existing_cluster.adoc[Adding hosts to an existing cluster] section in the install and configuration guide.
+
+== Master host tasks
+
+=== Deprecating a master host
+
+[[day-two-guide-deprecating-master]]
+include::day_two_guide/topics/deprecating_master.adoc[]
+
+=== Creating a master host backup
+
+[[day-two-guide-master-backup]]
+include::day_two_guide/topics/master_backup.adoc[]
+
+== Node host tasks
+
+=== Deprecating a node host
+
+[[day-two-guide-deprecating-node]]
+include::day_two_guide/topics/deprecating_node.adoc[]
+
+=== Creating a node host backup
+
+[[day-two-guide-node-backup]]
+include::day_two_guide/topics/node_backup.adoc[]
+
+=== Node maintenance
+
+////
+The topic below is contains the same information as the following:
+
+* admin_guide/manage_nodes.adoc#marking-nodes-as-unschedulable-or-schedulable
+* admin_guide/manage_nodes.html#evacuating-pods-on-nodes
+* admin_guide/managing_pods.html#managing-pods-poddisruptionbudget  
+////
+
+[[day-two-guide-node-maintenance]]
+include::day_two_guide/topics/node_maintenance.adoc[]
+
+== etcd tasks
+
+[[day-two-guide-etcd-backup]]
+include::day_two_guide/topics/etcd_backup.adoc[]
+
+
+

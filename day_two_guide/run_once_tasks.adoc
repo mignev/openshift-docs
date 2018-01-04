@@ -1,0 +1,29 @@
+[[day-two-run-once]]
+= Run-once tasks
+{product-author}
+{product-version}
+:data-uri:
+:icons:
+:experimental:
+:toc: macro
+:toc-title:
+:prewrap!:
+
+toc::[]
+
+
+After installing {product-title}, your system may need some extra configuration. The following are tasks that are designed to ensure your hosts run smoothly.
+
+While these are classified as run-once tasks, you can perform any of these at any time if any circumstances change.
+
+== NTP synchronization
+[[day-two-guide-ntp-synchronization]]
+include::day_two_guide/topics/ntp_synchronization.adoc[]
+
+== Entropy
+[[day-two-guide-entropy]]
+include::day_two_guide/topics/entropy.adoc[]
+
+== Checking the default storage class
+[[day-two-guide-default-storage-class]]
+include::day_two_guide/topics/default_storage_class.adoc[]

@@ -1,0 +1,31 @@
+[[day_two_project_level_tasks]]
+= Project-level tasks
+{product-author}
+{product-version}
+:data-uri:
+:icons:
+:experimental:
+:toc: macro
+:toc-title:
+:prewrap!:
+
+toc::[]
+
+== Project backup
+
+[[day-two-guide-project-backup]]
+include::day_two_guide/topics/project_backup.adoc[]
+
+== PVC backup
+
+[[day-two-guide-pvc-backup-restore]]
+include::day_two_guide/topics/pvc_backup_and_restore.adoc[]
+
+== Pruning images and Containers
+
+See the xref:../admin_guide/pruning-resources.adoc#admin-guide-pruning-resources[Pruning Resources] topic for information about pruning collected data and older versions of objects.
+
+////
+[[day-two-guide-pruning-images]]
+include::day_two_guide/topics/pruning_images_and_containers.adoc[]
+////
