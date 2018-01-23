@@ -6,45 +6,57 @@ Module included in the following assemblies:
 * day_two_guide/host_level_tasks.adoc
 ////
 
-To deprecate a master host is important to review the current role and services
-running on the master as well as the status of the cluster before and after the
-master has been deprecated.
-
-If the {rhocp} environment has been deployed in a highly available architecture,
-there are at least 3 master hosts and 3 `etcd` nodes. Usually master hosts are
-running `etcd` services collocated with the master services, in that case it
-includes 3 master hosts running the `etcd` services.
+When deprecating a master host, removes it from the {product-title} environment.
 
 The reasons to deprecate or scale down master hosts include hardware re-sizing
 or replace the underlying infrastructure.
 
-As a general recommendation, create a backup of the configuration and data
-files prior to any important task such as deprecating a master host.
+Highly available {product-title} environments require at least 3 master hosts
+and 3 etcd nodes. Usually, the master hosts are collocated with the etcd
+services. This topic describes the deprecation process for master hosts with or without collocated etcd.
 
-IMPORTANT: It is recommended the master services and `etcd` always be deployed in odd numbers
-due to the voting mechanisms that take place among those services.
+As a general recommendation, create a backup of the configuration and data files
+prior to any important task such as deprecating a master host. See the
+xref:../day_two_guide/host_level_tasks.adoc#day-two-guide-master-backup[Creating
+a master host backup] and
+xref:../day_two_guide/host_level_tasks.adoc#day-two-guide-etcd-backup[etcd
+tasks] sections for more information.
 
-===== Deprecating a Master Host Without `etcd`
-{rhocp} master hosts run a couple of services including the {rhocp} api and
-the {rhocp} controllers services if the {rhocp} architecture is multi-master.
-In order to deprecate a master host, the services must be stopped. The {rhocp}
+[IMPORTANT]
+====
+It is recommended the master services and etcd always be deployed in odd
+numbers due to the voting mechanisms that take place among those services.
+====
+
+[[day-two-guide-host-tasks-deprecating-master-without-etcd]]
+==== Deprecating a master host without collocated etcd
+
+Master hosts run a couple of services including the {product-title} api and
+controllers services (if multiple masters are present).
+In order to deprecate a master host, these services must be stopped. 
+
+The {product-title}
 api service is an active/active service, so stopping the service doesn't affect
-the environment as long as the requests are sent to the other {rhocp} master
-servers. The {rhocp} controllers service however is an active/passive service,
-where the services leverage `etcd` to decide the {rhocp} master active. In order
+the environment as long as the requests are sent to a separate master
+server. However, the {product-title} controllers service is an active/passive service,
+where the services leverage etcd to decide the active master. In order
 to check the master running the active controller service, see
-<<controller_role_verification>>
+xref:../day_two_guide/environment_health_checks.adoc#day-two-guide-controller-role-verification[Controller role verification].
 
-To properly deprecate a master host in a {rhocp} multi-master architecture the steps must
-include removing the master from the load balancer pool to avoid new connections
-try to use that master. This process depends heavily on the load balancer
-used. The steps below show the details of removing the master from `haproxy`. In the event that
-the {rhocp} is running on a cloud provider or using a `F5` applicance please see the product
-documents for that load balancer to remove the master from rotation.
+Deprecating a master host in a multi-master architecture includes removing the
+master from the load balancer pool to avoid new connections attempting to use
+that master. This process depends heavily on the load balancer used. The steps
+below show the details of removing the master from `haproxy`. In the event that
+{product-title} is running on a cloud provider, or using a `F5` appliance, see
+the specific product documents to remove the master from rotation.
 
-In the event of deprecating a master named `master-0.example.com` using
-`haproxy`, the master must be removed from the `backend` section in the `/etc/haproxy/haproxy.cfg` configuration file such as:
+[discrete]
+== Procedure
 
+. Remove the `backend` section in the `/etc/haproxy/haproxy.cfg` configuration
+file. For example, if deprecating a master named `master-0.example.com` using
+`haproxy`:
++
 ----
 backend mgmt8443
     balance source
@@ -54,34 +66,29 @@ backend mgmt8443
     server master-2.example.com 192.168.55.13:8443 check
 ----
 
-And restarting the `haproxy` service.
-
+. Then, restart the `haproxy` service.
++
 ----
 $ sudo systemctl restart haproxy
 ----
 
-NOTE: For more information about `haproxy` in {rhel} 7, see the
-https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/load_balancer_administration/index[Load Balancer Administration documentation].
-
-Once the master is removed from the load balancer, the api and controller
-services can be disabled:
-
+. Once the master is removed from the load balancer, disable the api and
+controller services:
++
 ----
 $ sudo systemctl disable --now atomic-openshift-master-api
 $ sudo systemctl disable --now atomic-openshift-master-controllers
 ----
 
-The master host is a {rhocp} node as well therefore the same steps as the
-<<deprecating_a_node>> section is required.
+. Because the master host is a unschedulable {product-title} node, follow the
+steps in the
+xref:../day_two_guide/host_level_tasks.adoc#day-two-guide-deprecating-node[Deprecating
+a node host] section.
 
-To properly remove the master host, the `Ansible` inventory file requires 
-modification to remove the master host from the inventory to avoid issues if
-running any `Ansible` task using that inventory.
-
-Modify `/etc/ansible/hosts` in the host used to install {rhocp} and remove it
-from the `[masters]` and `[nodes]` groups:
-
-[subs=+quotes]
+. Remove the master host from the `[masters]` and `[nodes]` groups in the
+`/etc/ansible/hosts` Ansible inventory file to avoid issues if running any
+Ansible tasks using that inventory file:
++
 ----
 ...[OUTPUT OMITTED]...
 # host group for masters
@@ -95,20 +102,24 @@ master-2.example.com
 *master-0.example.com openshift_node_labels="{'role': 'master'}" openshift_hostname=master-0.example.com openshift_schedulable=false*
 ...[OUTPUT OMITTED]...
 ----
++
+[WARNING]
+====
+Depcrecating the first master hist listed in the Ansible inventory file require
+extra precautions. 
 
-WARNING: At the time of writing this document, the
-`/etc/origin/master/ca.serial.txt` is generated only in the first master of the
-`Ansible` host inventory and it is being investigated by {rh} to be fixed in
-future {rhocp} releases in the
-https://bugzilla.redhat.com/show_bug.cgi?id=1469358[1469358 bugzilla]. Extra
-precautions required if deprecating the first master such as copying the
-`/etc/origin/master/ca.serial.txt` file to the rest of master hosts before
-removing the first master in the inventory.
+At this time of writing, the `/etc/origin/master/ca.serial.txt` file is
+generated onto only the first master listed in the Ansible host inventory.
+This is being investigated to be fixed in future {rhocp} releases in the
+https://bugzilla.redhat.com/show_bug.cgi?id=1469358[1469358 bugzilla]. If
+deprecating the first master host, copy the `/etc/origin/master/ca.serial.txt`
+file to the rest of master hosts before the process.
+====
 
-The `kubernetes` service in {rhocp} includes as endpoints the masters IPs. To
-verify the `master` has been properly deprecated, review the `kubernetes`
-service and observe if the deprecated master has been removed:
-
+The `kubernetes` service includes the master host IPs as endpoints. To
+verify that the master has been properly deprecated, review the `kubernetes`
+service output and see if the deprecated master has been removed:
++
 ----
 $ oc describe svc kubernetes -n default
 Name:			kubernetes
@@ -128,23 +139,36 @@ Endpoints:		192.168.55.12:8053,192.168.55.13:8053
 Session Affinity:	ClientIP
 Events:			<none>
 ----
-
++
 Once the master has been successfully deprecated, the host where the master
 was previously running can be safely deleted.
 
-[[deprecating_a_collocated_etcd_master_host]]
-===== Deprecating a Collocated etcd Master Host
-The process to deprecate a master host running `etcd` include executing the
-previous steps to <<deprecating_a_master_host>> and the steps to <<removing_an_etcd_host>>
+[[deprecating-a-collocated-etcd-master-host]]
+==== Deprecating master host with collocated etcd
 
-==== Replacing a Master Host
-In the event of a master host breakage where it needs to be replaced, the
-process involve <<deprecating_a_master_host>> procedure and then scale up the
-master hosts with the new host using the scale up `Ansible` playbook following
-the <<adding_masters_to_rhocp_environment>> procedure.
+To deprecate a master host running an etcd service, execute the previous steps
+in
+xref:../day_two_guide/host_level_tasks.adoc#day-two-guide-host-tasks-deprecating-master-without-etcd[Deprecating
+a master host without collocated etcd], as well as the steps in
+xref:../day_two_guide/host_level_tasks.adoc#removing-an-etcd-host[Removing an
+etcd host].
 
-If the master host has a collocated `etcd`, then the
-<<deprecating_a_collocated_etcd_master_host>> steps are required, then the
-<<adding_masters_to_rhocp_environment>> as well as <<scaling_etcd>>.
+[[day-two-guide-replacing-master]]
+==== Replacing a master host
+
+In the event of replacing a broken master host, follow the process in
+xref:../day_two_guide/host_level_tasks.adoc#day-two_guide_host-tasks-deprecating-master-without-etcd[Deprecating
+a master host without collocated etcd], then scale up the master hosts using the scale up `Ansible` playbook following the steps in
+xref:../install_config/adding_hosts_to_existing_cluster.adoc#install-config-adding-hosts-to-cluster[Adding hosts to an
+existing cluster].
+
+If the master host has a collocated `etcd`, use the
+xref:../day_two_guide/host_level_tasks.adoc#deprecating-a-collocated-etcd-master_host[Deprecating
+master host with collocated etcd] steps, then the
+xref:../install_config/adding_hosts_to_existing_cluster.adoc#install-config-adding-hosts-to-cluster[Adding hosts to an
+existing cluster] as well as
+xref:../day_two_guide/host_level_tasks.adoc#scaling-etcd[Scaling etcd].
+
+
 
 // vim: set syntax=asciidoc:

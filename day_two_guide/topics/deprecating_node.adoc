@@ -6,18 +6,25 @@ Module included in the following assemblies:
 * day_two_guide/host_level_tasks.adoc
 ////
 
-The procedure is the same whether deprecating an infrastructure or an application
-node. Before proceeding, please ensure that enough capacity is available to
-migrate the existing pods from the node set to be removed. Removing an infrastructure
-node is advised only when at least two more nodes will stay online after the
-infrastructure node is removed.
+The procedure is the same whether deprecating an infrastructure or an
+application node.
 
-The first step to deprecate a node is to mark the node as unschedulable and evacuate
-all the pods. Let's have a cluster consisting of following nodes:
+[discrete]
+== Prerequisites
 
-[subs=+quotes]
+* Ensure there is enough capacity available to migrate the existing pods from the
+node set to be removed. Removing an infrastructure node is advised only when at
+least two more nodes will stay online after the infrastructure node is removed.
+
+[discrete]
+== Procedure
+
+. To deprecate a node, mark the node as unschedulable and evacuate all the pods.
++
+Fist list all available nodes to find the node to deprecate:
++
 ----
-$ *oc get nodes*
+$ oc get nodes
 NAME                  STATUS                     AGE       VERSION
 ocp-infra-node-b7pl   Ready                      23h       v1.6.1+5115d708d7
 ocp-infra-node-p5zj   Ready                      23h       v1.6.1+5115d708d7
@@ -29,13 +36,13 @@ ocp-node-020m         Ready                      23h       v1.6.1+5115d708d7
 ocp-node-7t5p         Ready                      23h       v1.6.1+5115d708d7
 ocp-node-n0dd         Ready                      23h       v1.6.1+5115d708d7
 ----
++
+This topic deprecates the `ocp-infra-node-b7pl` infrastructure node.
 
-And the infrastructure node `ocp-infra-node-b7pl` is scheduled to be deprecated.
-To get complete information about the node and what's running there, command `oc describe` can be used:
-
-[subs=+quotes]
+. Describe the node and its running services:
++
 ----
-$ *oc describe node ocp-infra-node-b7pl*
+$ oc describe node ocp-infra-node-b7pl
 Name:			ocp-infra-node-b7pl
 Role:
 Labels:			beta.kubernetes.io/arch=amd64
@@ -84,46 +91,51 @@ Allocated resources:
   200m (10%)	0 (0%)		512Mi (7%)	0 (0%)
 Events:		<none>
 ----
++
+The output above shows that the node is running two pods: `router-1-vzlzq` and
+`docker-registry-1-5szjs`. Two more infrastructure nodes are available to migrate these two pods.
++
+[NOTE]
+====
+The cluster described above is an highly available cluster, this means both the
+`router` and `docker-registry` services are running on all infrastructure nodes.
+====
 
-It's clear from the output above, that the node is running 2 pods: `router-1-vzlzq`
-and `docker-registry-1-5szjs`. Because 2 more infrastructure nodes are available,
-there is plenty of room to migrate these 2 pods.
-
-NOTE: Because the cluster discussed here is an HA {rhocp} cluster, both `router` and `docker-registry` services are running on all infrastructure nodes.
-
-To mark a node as unschedulable and to evacuate all the pods from it, the `oadm drain` command can be used:
-
-[subs=+quotes]
+. Mark a node as unschedulable, and evacuate all of its pods:
++
 ----
-$ *oadm drain ocp-infra-node-b7pl --delete-local-data*
+$ oadm drain ocp-infra-node-b7pl --delete-local-data
 node "ocp-infra-node-b7pl" cordoned
 WARNING: Deleting pods with local storage: docker-registry-1-5szjs
 pod "docker-registry-1-5szjs" evicted
 pod "router-1-vzlzq" evicted
 node "ocp-infra-node-b7pl" drained
 ----
-
-If the pod has attached local storage to it (`EmptyDir`), option `--delete-local-data`
-has to be provided. Generally, pods running in production should use the local
-storage only for temporary or cache files, but not for anything important or persistent.
-For regular storage, applications running in {rhocp} should use object storage or
-persistent volumes. In this case, the `docker-registry` pod's local storage is
-empty, because the object storage is used instead to store the container images.
-
-Please note that during this operation, existing pods running on the node are
-actually deleted, and new pods are created according to the
-*Replication Controller*. In general, every application running in {rhocp} should
-be deployed with a *Deployment config*, which creates pods using the
-*Replication Controller*. The command used above, won't delete bare pods (pods created
-directly, without Replication Controller). To delete pods without a `Replication Controller`, the option
-`--force` must be used. Be aware that the bare pods won't be recreated on other nodes
-and data may be lost during this operation.
-
-Below shows the output of the `Replication Controller` of the registry:
-
-[subs=+quotes]
++
+If the pod has attached local storage (for example, `EmptyDir`), the
+`--delete-local-data` must be provided. Generally, pods running in production
+should use the local storage only for temporary or cache files, but not for
+anything important or persistent. For regular storage, applications should use
+object storage or persistent volumes. In this case, the `docker-registry` pod's
+local storage is empty, because the object storage is used instead to store the
+container images.
++
+[NOTE]
+====
+During the above operation, existing pods running on the node are deleted, and
+new pods are created according to the replication controller. In general, every
+application should be deployed with a deployment configuration, which creates
+pods using the replication controller. The command used above, won't delete bare
+pods (pods created directly, without replication controller). To delete pods
+without a replication controller, the `--force` option must be used. Be aware
+that the bare pods won't be recreated on other nodes and data may be lost during
+this operation.
+====
++
+Below shows the output of the replication controller of the registry:
++
 ----
-$ *oc describe rc/docker-registry-1*
+$ oc describe rc/docker-registry-1
 Name:		docker-registry-1
 Namespace:	default
 Selector:	deployment=docker-registry-1,deploymentconfig=docker-registry,docker-registry=default
@@ -179,12 +191,12 @@ Events:
   ---------	--------	-----	----			-------------	--------	------		-------
   49m		49m		1	replication-controller			Normal		SuccessfulCreate	Created pod: docker-registry-1-dprp5
 ----
-
-Note the single event at the bottom of the output informing about new pod creation. And indeed, when listing all pods:
-
-[subs=+quotes]
++
+The event at the bottom of the output displays information about new pod
+creation. So, when listing all pods:
++
 ----
-$ *oc get pods*
+$ oc get pods
 NAME                       READY     STATUS    RESTARTS   AGE
 docker-registry-1-dprp5    1/1       Running   0          52m
 docker-registry-1-kr8jq    1/1       Running   0          1d
@@ -195,31 +207,29 @@ router-1-85qm4             1/1       Running   0          1d
 router-1-q5sr8             1/1       Running   0          1d
 ----
 
-The pods that were running on the now deprecated node , `docker-registry-1-5szjs`
-and `router-1-vzlzq`, are not available anymore. Instead, two new pods have been
-created: `docker-registry-1-dprp5` and `router-1-2gshr`. As shown above the new router
-pod `router-1-2gshr` is not actually created (it's stuck in the `Pending` state),
-because every node can be running only one single router because the router is
-bound to the ports 80 and 443 of the host.
+. The `docker-registry-1-5szjs` and `router-1-vzlzq` pods that were running on
+the now deprecated node are no longer available. Instead, two new pods have been
+created: `docker-registry-1-dprp5` and `router-1-2gshr`. As shown above, the new
+router pod is `router-1-2gshr`, but is in the `Pending` state. This is because
+every node can be running only on one single router and is bound to the ports 80
+and 443 of the host.
 
-When observing the newly created registry pod the below shows that the pod has
+. When observing the newly created registry pod the below shows that the pod has
 been created on the `ocp-infra-node-rghb` node, which is different from the deprecating node.
-
-[subs=+quotes]
++
 ----
-$ *oc describe pod docker-registry-1-dprp5*
+$ oc describe pod docker-registry-1-dprp5
 Name:			docker-registry-1-dprp5
 Namespace:		default
 Security Policy:	hostnetwork
 Node:			ocp-infra-node-rghb/10.156.0.10
 ...
 ----
-
++
 The only difference between deprecating the infrastructure and the application
 node is that once the infrastructure node is evacuated, and there are no plan to
 replace that node, the services running on infrastructure nodes can be scaled down. This can be done with:
-
-[subs=+quotes]
++
 ----
 $ oc scale dc/router --replicas 2
 deploymentconfig "router" scaled
@@ -228,9 +238,8 @@ $ oc scale dc/docker-registry --replicas 2
 deploymentconfig "docker-registry" scaled
 ----
 
-Now, every infrastructure node is running only one kind of each pod:
-
-[subs=+quotes]
+. Now, every infrastructure node is running only one kind of each pod:
++
 ----
 $ oc get pods
 NAME                       READY     STATUS    RESTARTS   AGE
@@ -239,21 +248,22 @@ docker-registry-1-ncpl2    1/1       Running   0          1d
 registry-console-1-g4nqg   1/1       Running   0          1d
 router-1-85qm4             1/1       Running   0          1d
 router-1-q5sr8             1/1       Running   0          1d
-----
 
-[subs=+quotes]
-----
 $ oc describe po/docker-registry-1-kr8jq | grep Node:
 Node:			ocp-infra-node-p5zj/10.156.0.9
 
 $ oc describe po/docker-registry-1-ncpl2 | grep Node:
 Node:			ocp-infra-node-rghb/10.156.0.10
 ----
++
+[NOTE]
+====
+To provide full highly available capabilities cluster, at least three
+infrastructure nodes should be always available.
+====
 
-NOTE: To provide full HA capabilities of {rhocp} cluster, at least 3 infrastructure nodes should be always available.
-
-To verify that the scheduling on the node is disabled:
-
+. To verify that the scheduling on the node is disabled:
++
 ----
 $ oc get nodes
 NAME                  STATUS                     AGE       VERSION
@@ -267,9 +277,9 @@ ocp-node-020m         Ready                      1d        v1.6.1+5115d708d7
 ocp-node-7t5p         Ready                      1d        v1.6.1+5115d708d7
 ocp-node-n0dd         Ready                      1d        v1.6.1+5115d708d7
 ----
-
++
 And that the node doesn't contain any pods:
-
++
 ----
 $ oc describe node ocp-infra-node-b7pl
 Name:			ocp-infra-node-b7pl
@@ -319,9 +329,8 @@ Allocated resources:
 Events:		<none>
 ----
 
-In the event of deprecating an infrastructure instance named `infra-0.example.com` using
-`haproxy`, the infrastructure instance  must be removed from the `backend` section in the `/etc/haproxy/haproxy.cfg` configuration file such as:
-
+. Remove the infrastructure instance from the `backend` section in the `/etc/haproxy/haproxy.cfg` configuration file:
++
 ----
 backend router80
     balance source
@@ -336,22 +345,20 @@ backend router443
     server infra-2.example.com 192.168.55.13:443 check
 ----
 
-And restarting the `haproxy` service.
-
+. Then, restart the `haproxy` service.
++
 ----
 $ sudo systemctl restart haproxy
 ----
 
 
-Last step, when deprecating a node is to remove the node from the cluster. This can be done safely after all pods are evicted with command:
-
-[subs=+quotes]
+. Remove the node from the cluster after all pods are evicted with command:
++
 ----
 $ oc delete node ocp-infra-node-b7pl
 node "ocp-infra-node-b7pl" deleted
 ----
-
-[subs=+quotes]
++
 ----
 $ oc get nodes
 NAME                  STATUS                     AGE       VERSION
@@ -365,8 +372,13 @@ ocp-node-7t5p         Ready                      1d        v1.6.1+5115d708d7
 ocp-node-n0dd         Ready                      1d        v1.6.1+5115d708d7
 ----
 
-NOTE: For more information on evacuating and draining pods or nodes, see
-<<node_maintenance>>.
+[NOTE]
+====
+For more information on evacuating and draining pods or nodes, see
+xref:../day_two_guide/host_level_tasks.adic#day-two-guide-node-maintenance[Node maintenance] section.
+====
 
-==== Replacing the Node
-In the event that a node would need to be added in place of the deprecated node then follow the directions located here <<adding_nodes_to_rhocp_environment>>.
+==== Replacing a node host
+
+In the event that a node would need to be added in place of the deprecated node then follow the xref:../install_config/adding_hosts_to_existing_cluster.adoc#install-config-adding-hosts-to-cluster[Adding hosts to an
+existing cluster] section.

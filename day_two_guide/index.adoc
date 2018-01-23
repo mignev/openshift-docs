@@ -6,6 +6,6 @@
 :icons:
 :experimental:
 
-This section is built for {product-title} administrators with a fresh installation. The following topics give an overview of commonly found daily tasks.
+This section is built for {product-title} administrators with a fresh installation.
 
-Differences between this and the Admin Guide.
+While the xref:../admin_guide/index.adoc#admin-guide-index[{product-title} Administrator's Guide] is focused more on configuration, this guide will describe an overview of commonly found daily maintenance tasks.

@@ -35,11 +35,11 @@ include::day_two_guide/topics/storage.adoc[]
 [[day-two-guide-docker-storage]]
 include::day_two_guide/topics/docker_storage.adoc[]
 
-== API Service Status
+== API service status
 [[day-two-guide-api-service-status]]
 include::day_two_guide/topics/api_service_status.adoc[]
 
-== Controller Role Verification
+== Controller role verification
 [[day-two-guide-controller-role-verification]]
 include::day_two_guide/topics/controller_role_verification.adoc[]
 

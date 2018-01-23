@@ -47,10 +47,10 @@ The topic below is contains the same information as the following:
 * admin_guide/manage_nodes.adoc#marking-nodes-as-unschedulable-or-schedulable
 * admin_guide/manage_nodes.html#evacuating-pods-on-nodes
 * admin_guide/managing_pods.html#managing-pods-poddisruptionbudget  
-////
 
 [[day-two-guide-node-maintenance]]
 include::day_two_guide/topics/node_maintenance.adoc[]
+////
 
 == etcd tasks
 
